@@ -159,6 +159,7 @@ define(function (require, exports, module) {
             InstallExtensionDialog  : require("extensibility/InstallExtensionDialog"),
             RemoteAgent             : require("LiveDevelopment/Agents/RemoteAgent"),
             HTMLInstrumentation     : require("language/HTMLInstrumentation"),
+            MultiRangeInlineEditor  : require("editor/MultiRangeInlineEditor").MultiRangeInlineEditor,
             doneLoading             : false
         };
 
@@ -215,8 +216,6 @@ define(function (require, exports, module) {
                     // an old version that might not have set the "afterFirstLaunch" pref.)
                     var prefs = PreferencesManager.getPreferenceStorage(module),
                         deferred = new $.Deferred();
-                    //TODO: Remove preferences migration code
-                    PreferencesManager.handleClientIdChange(prefs, "com.adobe.brackets.startup");
                     
                     if (!params.get("skipSampleProjectLoad") && !prefs.getValue("afterFirstLaunch")) {
                         prefs.setValue("afterFirstLaunch", "true");
@@ -290,7 +289,7 @@ define(function (require, exports, module) {
                 var defaultFocus = $.fn.focus;
                 $.fn.focus = function () {
                     if (!this.hasClass("dropdown-toggle")) {
-                        defaultFocus.apply(this, arguments);
+                        return defaultFocus.apply(this, arguments);
                     }
                 };
             }());
@@ -311,7 +310,9 @@ define(function (require, exports, module) {
                 if (event.originalEvent.dataTransfer.files) {
                     event.stopPropagation();
                     event.preventDefault();
-                    if (DragAndDrop.isValidDrop(event.originalEvent.dataTransfer.items)) {
+                    // Don't allow drag-and-drop of files/folders when a modal dialog is showing.
+                    if ($(".modal.instance").length === 0 &&
+                            DragAndDrop.isValidDrop(event.originalEvent.dataTransfer.items)) {
                         dropEffect = "copy";
                     }
                     event.originalEvent.dataTransfer.dropEffect = dropEffect;
