@@ -45,6 +45,7 @@ define(function (require, exports, module) {
     exports.FILE_CLOSE_ALL              = "file.close_all";             // DocumentCommandHandlers.js   handleFileCloseAll()
     exports.FILE_CLOSE_LIST             = "file.close_list";            // DocumentCommandHandlers.js   handleFileCloseList()
     exports.FILE_ADD_TO_WORKING_SET     = "file.addToWorkingSet";       // DocumentCommandHandlers.js   handleFileAddToWorkingSet()
+    exports.FILE_OPEN_DROPPED_FILES     = "file.openDroppedFiles";      // DragAndDrop.js               openDroppedFiles()
     exports.FILE_LIVE_FILE_PREVIEW      = "file.liveFilePreview";       // LiveDevelopment/main.js      _handleGoLiveCommand()
     exports.FILE_LIVE_HIGHLIGHT         = "file.previewHighlight";      // LiveDevelopment/main.js      _handlePreviewHighlightCommand()
     exports.FILE_PROJECT_SETTINGS       = "file.projectSettings";       // ProjectManager.js            _projectSettings()
@@ -52,6 +53,7 @@ define(function (require, exports, module) {
     exports.FILE_DELETE                 = "file.delete";                // DocumentCommandHandlers.js   handleFileDelete()
     exports.FILE_EXTENSION_MANAGER      = "file.extensionManager";      // ExtensionManagerDialog.js    _showDialog()
     exports.FILE_REFRESH                = "file.refresh";               // ProjectManager.js            refreshFileTree()
+    exports.FILE_OPEN_PREFERENCES       = "file.openPreferences";       // PreferencesManager.js        _handleOpenPreferences()
     
     // File shell callbacks - string must MATCH string in native code (appshell/command_callbacks.h)
     exports.FILE_CLOSE_WINDOW           = "file.close_window";          // DocumentCommandHandlers.js   handleFileCloseWindow()
@@ -67,14 +69,20 @@ define(function (require, exports, module) {
     exports.EDIT_SELECT_ALL             = "edit.selectAll";             // EditorCommandHandlers.js     _handleSelectAll()
     
     exports.EDIT_SELECT_LINE            = "edit.selectLine";            // EditorCommandHandlers.js     selectLine()
+    exports.EDIT_SPLIT_SEL_INTO_LINES   = "edit.splitSelIntoLines";     // EditorCommandHandlers.js     splitSelIntoLines()
+    exports.EDIT_ADD_NEXT_LINE_TO_SEL   = "edit.addNextLineToSel";      // EditorCommandHandlers.js     addNextLineToSel()
+    exports.EDIT_ADD_PREV_LINE_TO_SEL   = "edit.addPrevLineToSel";      // EditorCommandHandlers.js     addPrevLineToSel()
     exports.EDIT_FIND                   = "edit.find";                  // FindReplace.js               _launchFind()
     exports.EDIT_FIND_IN_FILES          = "edit.findInFiles";           // FindInFiles.js               _doFindInFiles()
     exports.EDIT_FIND_IN_SUBTREE        = "edit.findInSubtree";         // FindInFiles.js               _doFindInSubtree()
     exports.EDIT_FIND_NEXT              = "edit.findNext";              // FindReplace.js               _findNext()
     exports.EDIT_FIND_PREVIOUS          = "edit.findPrevious";          // FindReplace.js               _findPrevious()
+    exports.EDIT_FIND_ALL_AND_SELECT    = "edit.findAllAndSelect";      // FindReplace.js               _findAllAndSelect()
+    exports.EDIT_ADD_NEXT_MATCH         = "edit.addNextMatch";          // FindReplace.js               _expandAndAddNextToSelection()
+    exports.EDIT_SKIP_CURRENT_MATCH     = "edit.skipCurrentMatch";      // FindReplace.js               _skipCurrentMatch()
     exports.EDIT_REPLACE                = "edit.replace";               // FindReplace.js               _replace()
     exports.EDIT_INDENT                 = "edit.indent";                // EditorCommandHandlers.js     indentText()
-    exports.EDIT_UNINDENT               = "edit.unindent";              // EditorCommandHandlers.js     unidentText()
+    exports.EDIT_UNINDENT               = "edit.unindent";              // EditorCommandHandlers.js     unindentText()
     exports.EDIT_DUPLICATE              = "edit.duplicate";             // EditorCommandHandlers.js     duplicateText()
     exports.EDIT_DELETE_LINES           = "edit.deletelines";           // EditorCommandHandlers.js     deleteCurrentLines()
     exports.EDIT_LINE_COMMENT           = "edit.lineComment";           // EditorCommandHandlers.js     lineComment()
@@ -116,6 +124,7 @@ define(function (require, exports, module) {
     exports.TOGGLE_QUICK_DOCS           = "navigate.toggleQuickDocs";   // EditorManager.js             _toggleInlineWidget()
     exports.QUICK_EDIT_NEXT_MATCH       = "navigate.nextMatch";         // MultiRangeInlineEditor.js    _nextRange()
     exports.QUICK_EDIT_PREV_MATCH       = "navigate.previousMatch";     // MultiRangeInlineEditor.js    _previousRange()
+    exports.CSS_QUICK_EDIT_NEW_RULE     = "navigate.newRule";           // CSSInlineEditor.js           _handleNewRule()
 
     // HELP
     exports.HELP_CHECK_FOR_UPDATE       = "help.checkForUpdate";        // HelpCommandHandlers.js       _handleCheckForUpdates()
@@ -130,8 +139,11 @@ define(function (require, exports, module) {
     exports.HELP_ABOUT                  = "help.about";                 // HelpCommandHandlers.js       _handleAboutDialog()
 
     // APP
+    exports.APP_RELOAD                  = "app.reload";                 // DocumentCommandHandlers.js   handleReload()
+    exports.APP_RELOAD_WITHOUT_EXTS     = "app.reload_without_exts";    // DocumentCommandHandlers.js   handleReloadWithoutExts()
+    
     // File shell callbacks - string must MATCH string in native code (appshell/command_callbacks.h)
-    exports.APP_ABORT_QUIT              = "app.abort_quit";             // DocumentCommandHandlers.js   _handleAbortQuit()
-    exports.APP_BEFORE_MENUPOPUP        = "app.before_menupopup";       // DocumentCommandHandlers.js   _handleBeforeMenuPopup()
+    exports.APP_ABORT_QUIT              = "app.abort_quit";             // DocumentCommandHandlers.js   handleAbortQuit()
+    exports.APP_BEFORE_MENUPOPUP        = "app.before_menupopup";       // DocumentCommandHandlers.js   handleBeforeMenuPopup()
 });
 

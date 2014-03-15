@@ -46,12 +46,6 @@ define(function (require, exports, module) {
     
     /**
      * @private
-     * @type {PreferenceStorage}
-     */
-    var _prefs = {};
-    
-    /**
-     * @private
      * @type {Array.<Sort>}
      */
     var _sorts = [];
@@ -116,7 +110,7 @@ define(function (require, exports, module) {
      */
     function setAutomatic(enable) {
         _automaticSort = enable;
-        _prefs.setValue("automaticSort", _automaticSort);
+        PreferencesManager.setViewState("automaticSort", _automaticSort);
         CommandManager.get(Commands.SORT_WORKINGSET_AUTO).setChecked(_automaticSort);
         
         if (enable) {
@@ -164,7 +158,7 @@ define(function (require, exports, module) {
             
             CommandManager.get(Commands.SORT_WORKINGSET_AUTO).setEnabled(!!newSort.getEvents());
             _currentSort = newSort;
-            _prefs.setValue("currentSort", _currentSort.getCommandID());
+            PreferencesManager.setViewState("currentSort", _currentSort.getCommandID());
         }
     }
     
@@ -174,7 +168,7 @@ define(function (require, exports, module) {
      * @private
      *
      * @param {string} commandID A valid command identifier.
-     * @param {function(FileEntry, FileEntry): number} compareFn A valid sort
+     * @param {function(File, File): number} compareFn A valid sort
      *      function (see register for a longer explanation).
      * @param {string} events Space-separated DocumentManager possible events
      *      ending with ".sort".
@@ -190,7 +184,7 @@ define(function (require, exports, module) {
         return this._commandID;
     };
     
-    /** @return {function(FileEntry, FileEntry): number} The compare function */
+    /** @return {function(File, File): number} The compare function */
     Sort.prototype.getCompareFn = function () {
         return this._compareFn;
     };
@@ -223,7 +217,7 @@ define(function (require, exports, module) {
     /**
      * Registers a working set sort method.
      * @param {(string|Command)} command A command ID or a command object
-     * @param {function(FileEntry, FileEntry): number} compareFn The function that
+     * @param {function(File, File): number} compareFn The function that
      *      will be used inside JavaScript's sort function. The return a value
      *      should be >0 (sort a to a lower index than b), =0 (leaves a and b
      *      unchanged with respect to each other) or <0 (sort b to a lower index
@@ -321,13 +315,16 @@ define(function (require, exports, module) {
     CommandManager.register(Strings.CMD_SORT_WORKINGSET_AUTO,     Commands.SORT_WORKINGSET_AUTO,     _handleAutomaticSort);
     
     
-    // Initialize PreferenceStorage
-    _prefs = PreferencesManager.getPreferenceStorage(module, defaultPrefs);
+    // Initialize default values for sorting preferences
+    PreferencesManager.stateManager.definePreference("currentSort", "string", Commands.SORT_WORKINGSET_BY_ADDED);
+    PreferencesManager.stateManager.definePreference("automaticSort", "boolean", false);
+    
+    PreferencesManager.convertPreferences(module, {"currentSort": "user", "automaticSort": "user"}, true);
     
     // Initialize items dependent on extensions/workingSet
     AppInit.appReady(function () {
-        var curSort  = get(_prefs.getValue("currentSort")),
-            autoSort = _prefs.getValue("automaticSort");
+        var curSort  = get(PreferencesManager.getViewState("currentSort")),
+            autoSort = PreferencesManager.getViewState("automaticSort");
         
         if (curSort) {
             _setCurrentSort(curSort);

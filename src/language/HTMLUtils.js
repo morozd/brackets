@@ -23,12 +23,13 @@
 
 
 /*jslint vars: true, plusplus: true, devel: true, nomen: true, indent: 4, maxerr: 50 */
-/*global define, $, CodeMirror */
+/*global define, $ */
 
 define(function (require, exports, module) {
     "use strict";
     
-    var TokenUtils = require("utils/TokenUtils");
+    var CodeMirror = require("thirdparty/CodeMirror2/lib/codemirror"),
+        TokenUtils = require("utils/TokenUtils");
     
     //constants
     var TAG_NAME = "tagName",
@@ -262,7 +263,9 @@ define(function (require, exports, module) {
             // So just return an empty tag info.
             if (isPriorAttr &&
                     (!ctx.token.type ||
-                    (ctx.token.type !== "attribute" && ctx.token.string.indexOf("<") !== -1))) {
+                    (ctx.token.type && ctx.token.type !== "attribute" &&
+                        ctx.token.type.indexOf("error") === -1 &&
+                        ctx.token.string.indexOf("<") !== -1))) {
                 return createTagInfo();
             }
             return createTagInfo(ATTR_NAME, offset, tagName, attrName);
@@ -290,7 +293,7 @@ define(function (require, exports, module) {
      *      className:string    string:""open-files-disclosure-arrow""
      *      className:tag       string:"></span>"
      * @param {Editor} editor An instance of a Brackets editor
-     * @param {{ch: number, line: number}} constPos  A CM pos (likely from editor.getCursor())
+     * @param {{ch: number, line: number}} constPos  A CM pos (likely from editor.getCursorPos())
      * @return {{tagName:string,
      *           attr:{name:string, value:string, valueAssigned:boolean, quoteChar:string, hasEndQuote:boolean},
      *           position:{tokenType:string, offset:number}
@@ -328,7 +331,8 @@ define(function (require, exports, module) {
                 // pos has whitespace before it and non-whitespace after it, so use token after
                 ctx.token = testToken;
 
-                if (ctx.token.type === "tag" || ctx.token.type === "error") {
+                if (ctx.token.type === "tag" ||
+                        (ctx.token.type && ctx.token.type.indexOf("error") !== -1)) {
                     // Check to see if the cursor is just before a "<" but not in any tag.
                     if (ctx.token.string.charAt(0) === "<") {
                         return createTagInfo();
@@ -394,7 +398,8 @@ define(function (require, exports, module) {
             }
         }
         
-        if (ctx.token.type === "tag" || ctx.token.type === "error") {
+        if (ctx.token.type === "tag" ||
+                (ctx.token.type && ctx.token.type.indexOf("error") !== -1)) {
             // Check if the user just typed a white space after "<" that made an existing tag invalid.
             if (ctx.token.string.match(/^<\s+/) && offset !== 1) {
                 return createTagInfo();

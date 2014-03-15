@@ -219,7 +219,7 @@ define(function (require, exports, module) {
                 openInlineEditor();
                 
                 runs(function () {
-                    var editor = EditorManager.getCurrentFullEditor().getInlineWidgets()[0].editors[0];
+                    var editor = EditorManager.getCurrentFullEditor().getInlineWidgets()[0].editor;
                     checkLineWrapping(editor, {line: 0, ch: 0}, {line: 0, ch: 160}, true);
                 });
             });
@@ -261,7 +261,7 @@ define(function (require, exports, module) {
                 openInlineEditor();
                 
                 runs(function () {
-                    var editor = EditorManager.getCurrentFullEditor().getInlineWidgets()[0].editors[0];
+                    var editor = EditorManager.getCurrentFullEditor().getInlineWidgets()[0].editor;
                     checkActiveLine(editor, 0, false);
                 });
             });
@@ -313,7 +313,7 @@ define(function (require, exports, module) {
                 openInlineEditor();
                 
                 runs(function () {
-                    var editor = EditorManager.getCurrentFullEditor().getInlineWidgets()[0].editors[0];
+                    var editor = EditorManager.getCurrentFullEditor().getInlineWidgets()[0].editor;
                     checkLineNumbers(editor, true);
                 });
             });
@@ -333,7 +333,7 @@ define(function (require, exports, module) {
                 openInlineEditor();
                 
                 runs(function () {
-                    var editor = EditorManager.getCurrentFullEditor().getInlineWidgets()[0].editors[0];
+                    var editor = EditorManager.getCurrentFullEditor().getInlineWidgets()[0].editor;
                     checkLineNumbers(editor, false);
                 });
             });
@@ -364,7 +364,7 @@ define(function (require, exports, module) {
                 openInlineEditor({line: 9, ch: 11});
                 
                 runs(function () {
-                    var editor = EditorManager.getCurrentFullEditor().getInlineWidgets()[0].editors[0];
+                    var editor = EditorManager.getCurrentFullEditor().getInlineWidgets()[0].editor;
                     checkCloseBraces(editor, {line: 1, ch: 15}, null, OPEN_BRACKET, ".shortLineClass { color: red; }");
                 });
             });
@@ -384,7 +384,7 @@ define(function (require, exports, module) {
                 openInlineEditor({line: 9, ch: 11});
                 
                 runs(function () {
-                    var editor = EditorManager.getCurrentFullEditor().getInlineWidgets()[0].editors[0];
+                    var editor = EditorManager.getCurrentFullEditor().getInlineWidgets()[0].editor;
                     checkCloseBraces(editor, {line: 1, ch: 32}, null, OPEN_BRACKET, ".shortLineClass { color: red; }[]");
                 });
             });
@@ -433,7 +433,7 @@ define(function (require, exports, module) {
                     checkCloseBraces(editor, {line: 0, ch: 16}, {line: 0, ch: 34}, OPEN_BRACKET, "var myContent = [\"This is awesome!\"];");
                     
                     runs(function () {
-                        expect(editor.getSelection()).toEqual({start: {line: 0, ch: 16}, end: {line: 0, ch: 36}});
+                        expect(editor.getSelection()).toEqual({start: {line: 0, ch: 16}, end: {line: 0, ch: 36}, reversed: false});
                     });
                 });
             });

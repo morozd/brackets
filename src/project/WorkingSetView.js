@@ -32,6 +32,8 @@
  */
 define(function (require, exports, module) {
     "use strict";
+    
+    var _ = require("thirdparty/lodash");
 
     // Load dependent modules
     var DocumentManager       = require("document/DocumentManager"),
@@ -39,7 +41,6 @@ define(function (require, exports, module) {
         Commands              = require("command/Commands"),
         Menus                 = require("command/Menus"),
         FileViewController    = require("project/FileViewController"),
-        CollectionUtils       = require("utils/CollectionUtils"),
         ViewUtils             = require("utils/ViewUtils");
     
     
@@ -64,10 +65,57 @@ define(function (require, exports, module) {
     
     
     /**
+     * Finds the listItem item assocated with the file. Returns null if not found.
+     * @private
+     * @param {!File} file
+     * @return {HTMLLIItem}
+     */
+    function _findListItemFromFile(file) {
+        var result = null;
+
+        if (file) {
+            var items = $openFilesContainer.find("ul").children();
+            items.each(function () {
+                var $listItem = $(this);
+                if ($listItem.data(_FILE_KEY).fullPath === file.fullPath) {
+                    result = $listItem;
+                    return false;
+                    // breaks each
+                }
+            });
+        }
+
+        return result;
+    }
+
+    /**
+     * @private
+     */
+    function _scrollSelectedDocIntoView() {
+        if (FileViewController.getFileSelectionFocus() !== FileViewController.WORKING_SET_VIEW) {
+            return;
+        }
+
+        var doc = DocumentManager.getCurrentDocument();
+        if (!doc) {
+            return;
+        }
+
+        var $selectedDoc = _findListItemFromFile(doc.file);
+        if (!$selectedDoc) {
+            return;
+        }
+
+        ViewUtils.scrollElementIntoView($openFilesContainer, $selectedDoc, false);
+    }
+
+    /**
      * @private
      * Redraw selection when list size changes or DocumentManager currentDocument changes.
      */
     function _fireSelectionChanged() {
+        _scrollSelectedDocIntoView();
+
         // redraw selection
         $openFilesList.trigger("selectionChanged");
 
@@ -92,7 +140,7 @@ define(function (require, exports, module) {
     /**
      * @private
      * Adds directory names to elements representing passed files in working tree
-     * @param {Array.<FileEntry>} filesList - list of FileEntries with the same filename
+     * @param {Array.<File>} filesList - list of Files with the same filename
      */
     function _addDirectoryNamesToWorkingTreeFiles(filesList) {
         // filesList must have at least two files in it for this to make sense
@@ -100,49 +148,7 @@ define(function (require, exports, module) {
             return;
         }
 
-        // First collect paths from the list of files and fill map with them
-        var map = {}, filePaths = [], displayPaths = [];
-        filesList.forEach(function (file, index) {
-            var fp = file.fullPath.split("/");
-            fp.pop(); // Remove the filename itself
-            displayPaths[index] = fp.pop();
-            filePaths[index] = fp;
-
-            if (!map[displayPaths[index]]) {
-                map[displayPaths[index]] = [index];
-            } else {
-                map[displayPaths[index]].push(index);
-            }
-        });
-
-        // This function is used to loop through map and resolve duplicate names
-        var processMap = function (map) {
-            var didSomething = false;
-            CollectionUtils.forEach(map, function (arr, key) {
-                // length > 1 means we have duplicates that need to be resolved
-                if (arr.length > 1) {
-                    arr.forEach(function (index) {
-                        if (filePaths[index].length !== 0) {
-                            displayPaths[index] = filePaths[index].pop() + "/" + displayPaths[index];
-                            didSomething = true;
-
-                            if (!map[displayPaths[index]]) {
-                                map[displayPaths[index]] = [index];
-                            } else {
-                                map[displayPaths[index]].push(index);
-                            }
-                        }
-                    });
-                }
-                delete map[key];
-            });
-            return didSomething;
-        };
-
-        var repeat;
-        do {
-            repeat = processMap(map);
-        } while (repeat);
+        var displayPaths = ViewUtils.getDirNamesForDuplicateFiles(filesList);
 
         // Go through open files and add directories to appropriate entries
         $openFilesContainer.find("ul > li").each(function () {
@@ -184,7 +190,7 @@ define(function (require, exports, module) {
         });
 
         // Go through the map and solve the arrays with length over 1. Ignore the rest.
-        CollectionUtils.forEach(map, function (value) {
+        _.forEach(map, function (value) {
             if (value.length > 1) {
                 _addDirectoryNamesToWorkingTreeFiles(value);
             }
@@ -464,7 +470,7 @@ define(function (require, exports, module) {
     /** 
      * Builds the UI for a new list item and inserts in into the end of the list
      * @private
-     * @param {FileEntry} file
+     * @param {File} file
      * @return {HTMLLIElement} newListItem
      */
     function _createNewListItem(file) {
@@ -511,51 +517,6 @@ define(function (require, exports, module) {
         if (forceRedraw) {
             _redraw();
         }
-    }
-
-    /**
-     * Finds the listItem item assocated with the file. Returns null if not found.
-     * @private
-     * @param {!FileEntry} file
-     * @return {HTMLLIItem}
-     */
-    function _findListItemFromFile(file) {
-        var result = null;
-
-        if (file) {
-            var items = $openFilesContainer.find("ul").children();
-            items.each(function () {
-                var $listItem = $(this);
-                if ($listItem.data(_FILE_KEY).fullPath === file.fullPath) {
-                    result = $listItem;
-                    return false;
-                    // breaks each
-                }
-            });
-        }
-
-        return result;
-    }
-
-    /**
-     * @private
-     */
-    function _scrollSelectedDocIntoView() {
-        if (FileViewController.getFileSelectionFocus() !== FileViewController.WORKING_SET_VIEW) {
-            return;
-        }
-
-        var doc = DocumentManager.getCurrentDocument();
-        if (!doc) {
-            return;
-        }
-
-        var $selectedDoc = _findListItemFromFile(doc.file);
-        if (!$selectedDoc) {
-            return;
-        }
-
-        ViewUtils.scrollElementIntoView($openFilesContainer, $selectedDoc, false);
     }
 
     /** 
@@ -606,7 +567,7 @@ define(function (require, exports, module) {
 
     /** 
      * @private
-     * @param {FileEntry} file
+     * @param {File} file
      * @param {boolean=} suppressRedraw If true, suppress redraw
      */
     function _handleFileRemoved(file, suppressRedraw) {

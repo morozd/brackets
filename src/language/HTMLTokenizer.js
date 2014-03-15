@@ -25,7 +25,7 @@
 // (MIT-licensed), but with significant customizations for use in HTML live development.
 
 /*jslint vars: true, plusplus: true, devel: true, nomen: true, indent: 4, maxerr: 50, continue: true */
-/*global define, $, CodeMirror */
+/*global define, $ */
 /*unittests: HTML Tokenizer*/
 
 define(function (require, exports, module) {
@@ -114,7 +114,9 @@ define(function (require, exports, module) {
      * @return {boolean} true if c is legal in an HTML tag name
      */
     function isLegalInTagName(c) {
-        return (/[A-Za-z0-9]/).test(c);
+        // We allow "-" in tag names since they're popular in Angular custom tag names
+        // and will be legal in the web components spec.
+        return (/[A-Za-z0-9\-]/).test(c);
     }
     
     /**

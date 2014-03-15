@@ -25,18 +25,6 @@
 /*jslint vars: true, plusplus: true, devel: true, nomen: true, indent: 4, maxerr: 50 */
 /*global require, define, brackets: true, $, window, navigator, Mustache */
 
-require.config({
-    paths: {
-        "text"      : "thirdparty/text/text",
-        "i18n"      : "thirdparty/i18n/i18n"
-    },
-    // Use custom brackets property until CEF sets the correct navigator.language
-    // NOTE: When we change to navigator.language here, we also should change to
-    // navigator.language in ExtensionLoader (when making require contexts for each
-    // extension).
-    locale: window.localStorage.getItem("locale") || (typeof (brackets) !== "undefined" ? brackets.app.language : navigator.language)
-});
-
 /**
  * brackets is the root of the Brackets codebase. This file pulls in all other modules as
  * dependencies (or dependencies thereof), initializes the UI, and binds global menus & keyboard
@@ -55,7 +43,20 @@ define(function (require, exports, module) {
     require("widgets/bootstrap-modal");
     require("widgets/bootstrap-twipsy-mod");
     require("thirdparty/path-utils/path-utils.min");
-    require("thirdparty/smart-auto-complete/jquery.smart_autocomplete");
+    require("thirdparty/smart-auto-complete-local/jquery.smart_autocomplete");
+
+    // Load CodeMirror add-ons--these attach themselves to the CodeMirror module    
+    require("thirdparty/CodeMirror2/addon/fold/xml-fold");
+    require("thirdparty/CodeMirror2/addon/edit/matchtags");
+    require("thirdparty/CodeMirror2/addon/edit/matchbrackets");
+    require("thirdparty/CodeMirror2/addon/edit/closebrackets");
+    require("thirdparty/CodeMirror2/addon/edit/closetag");
+    require("thirdparty/CodeMirror2/addon/scroll/scrollpastend");
+    require("thirdparty/CodeMirror2/addon/selection/active-line");
+    require("thirdparty/CodeMirror2/addon/mode/multiplex");
+    require("thirdparty/CodeMirror2/addon/mode/overlay");
+    require("thirdparty/CodeMirror2/addon/search/searchcursor");
+    require("thirdparty/CodeMirror2/keymap/sublime");
     
     // Load dependent modules
     var Global                  = require("utils/Global"),
@@ -76,7 +77,7 @@ define(function (require, exports, module) {
         CommandManager          = require("command/CommandManager"),
         CodeHintManager         = require("editor/CodeHintManager"),
         PerfUtils               = require("utils/PerfUtils"),
-        FileIndexManager        = require("project/FileIndexManager"),
+        FileSystem              = require("filesystem/FileSystem"),
         QuickOpen               = require("search/QuickOpen"),
         Menus                   = require("command/Menus"),
         FileUtils               = require("file/FileUtils"),
@@ -89,16 +90,18 @@ define(function (require, exports, module) {
         Async                   = require("utils/Async"),
         UpdateNotification      = require("utils/UpdateNotification"),
         UrlParams               = require("utils/UrlParams").UrlParams,
-        NativeFileSystem        = require("file/NativeFileSystem").NativeFileSystem,
         PreferencesManager      = require("preferences/PreferencesManager"),
         Resizer                 = require("utils/Resizer"),
         LiveDevelopmentMain     = require("LiveDevelopment/main"),
         NodeConnection          = require("utils/NodeConnection"),
+        NodeDomain              = require("utils/NodeDomain"),
         ExtensionUtils          = require("utils/ExtensionUtils"),
         DragAndDrop             = require("utils/DragAndDrop"),
         ColorUtils              = require("utils/ColorUtils"),
         CodeInspection          = require("language/CodeInspection"),
-        NativeApp               = require("utils/NativeApp");
+        NativeApp               = require("utils/NativeApp"),
+        ViewCommandHandlers     = require("view/ViewCommandHandlers"),
+        _                       = require("thirdparty/lodash");
         
     // Load modules that self-register and just need to get included in the main project
     require("command/DefaultMenus");
@@ -106,15 +109,22 @@ define(function (require, exports, module) {
     require("editor/EditorStatusBar");
     require("editor/EditorCommandHandlers");
     require("editor/EditorOptionHandlers");
-    require("view/ViewCommandHandlers");
     require("help/HelpCommandHandlers");
     require("search/FindInFiles");
     require("search/FindReplace");
     require("extensibility/InstallExtensionDialog");
     require("extensibility/ExtensionManagerDialog");
+    require("editor/ImageViewer");
+    
+    // Deprecated modules loaded just so extensions can still use them for now
+    require("utils/CollectionUtils");
+    // Compatibility shims for filesystem API migration
+    require("project/FileIndexManager");
+    require("file/NativeFileSystem");
+    require("file/NativeFileError");
     
     PerfUtils.addMeasurement("brackets module dependencies resolved");
-
+    
     // Local variables
     var params = new UrlParams();
     
@@ -140,12 +150,13 @@ define(function (require, exports, module) {
             JSUtils                 : JSUtils,
             CommandManager          : CommandManager,
             FileSyncManager         : FileSyncManager,
-            FileIndexManager        : FileIndexManager,
+            FileSystem              : FileSystem,
             Menus                   : Menus,
             KeyBindingManager       : KeyBindingManager,
             CodeHintManager         : CodeHintManager,
             Dialogs                 : Dialogs,
             DefaultDialogs          : DefaultDialogs,
+            DragAndDrop             : DragAndDrop,
             CodeInspection          : CodeInspection,
             CSSUtils                : require("language/CSSUtils"),
             LiveDevelopment         : require("LiveDevelopment/LiveDevelopment"),
@@ -160,6 +171,9 @@ define(function (require, exports, module) {
             RemoteAgent             : require("LiveDevelopment/Agents/RemoteAgent"),
             HTMLInstrumentation     : require("language/HTMLInstrumentation"),
             MultiRangeInlineEditor  : require("editor/MultiRangeInlineEditor").MultiRangeInlineEditor,
+            LanguageManager         : LanguageManager,
+            FindInFiles             : require("search/FindInFiles"),
+            FileFilters             : require("search/FileFilters"),
             doneLoading             : false
         };
 
@@ -170,7 +184,7 @@ define(function (require, exports, module) {
             
     function _onReady() {
         PerfUtils.addMeasurement("window.document Ready");
-        
+
         EditorManager.setEditorHolder($("#editor-holder"));
 
         // Let the user know Brackets doesn't run in a web browser yet
@@ -197,15 +211,17 @@ define(function (require, exports, module) {
             $testDiv.remove();
         }
 
-        // Load default languages
-        LanguageManager.ready.always(function () {
+        // Load default languages and preferences
+        Async.waitForAll([LanguageManager.ready, PreferencesManager.ready]).always(function () {
             // Load all extensions. This promise will complete even if one or more
             // extensions fail to load.
-            var extensionLoaderPromise = ExtensionLoader.init(params.get("extensions"));
+            var extensionPathOverride = params.get("extensions");  // used by unit tests
+            var extensionLoaderPromise = ExtensionLoader.init(extensionPathOverride ? extensionPathOverride.split(",") : null);
             
             // Load the initial project after extensions have loaded
             extensionLoaderPromise.always(function () {
                 // Finish UI initialization
+                ViewCommandHandlers.restoreFontSize();
                 var initialProjectPath = ProjectManager.getInitialProjectPath();
                 ProjectManager.openProject(initialProjectPath).always(function () {
                     _initTest();
@@ -214,18 +230,19 @@ define(function (require, exports, module) {
                     // the samples folder on first launch), open it automatically. (We explicitly check for the
                     // samples folder in case this is the first time we're launching Brackets after upgrading from
                     // an old version that might not have set the "afterFirstLaunch" pref.)
-                    var prefs = PreferencesManager.getPreferenceStorage(module),
-                        deferred = new $.Deferred();
+                    var deferred = new $.Deferred();
                     
-                    if (!params.get("skipSampleProjectLoad") && !prefs.getValue("afterFirstLaunch")) {
-                        prefs.setValue("afterFirstLaunch", "true");
+                    if (!params.get("skipSampleProjectLoad") && !PreferencesManager.getViewState("afterFirstLaunch")) {
+                        PreferencesManager.setViewState("afterFirstLaunch", "true");
                         if (ProjectManager.isWelcomeProjectPath(initialProjectPath)) {
-                            var dirEntry = new NativeFileSystem.DirectoryEntry(initialProjectPath);
-                            
-                            dirEntry.getFile("index.html", {}, function (fileEntry) {
-                                var promise = CommandManager.execute(Commands.FILE_ADD_TO_WORKING_SET, { fullPath: fileEntry.fullPath });
-                                promise.then(deferred.resolve, deferred.reject);
-                            }, deferred.reject);
+                            FileSystem.resolve(initialProjectPath + "index.html", function (err, file) {
+                                if (!err) {
+                                    var promise = CommandManager.execute(Commands.FILE_ADD_TO_WORKING_SET, { fullPath: file.fullPath });
+                                    promise.then(deferred.resolve, deferred.reject);
+                                } else {
+                                    deferred.reject();
+                                }
+                            });
                         } else {
                             deferred.resolve();
                         }
@@ -238,14 +255,24 @@ define(function (require, exports, module) {
                         AppInit._dispatchReady(AppInit.APP_READY);
                         
                         PerfUtils.addMeasurement("Application Startup");
+                        
+                        if (PreferencesManager._isUserScopeCorrupt()) {
+                            Dialogs.showModalDialog(
+                                DefaultDialogs.DIALOG_ID_ERROR,
+                                Strings.ERROR_PREFS_CORRUPT_TITLE,
+                                Strings.ERROR_PREFS_CORRUPT
+                            )
+                                .done(function () {
+                                    CommandManager.execute(Commands.FILE_OPEN_PREFERENCES);
+                                });
+                        }
+                        
                     });
                     
                     // See if any startup files were passed to the application
                     if (brackets.app.getPendingFilesToOpen) {
                         brackets.app.getPendingFilesToOpen(function (err, files) {
-                            files.forEach(function (filename) {
-                                CommandManager.execute(Commands.FILE_OPEN, { fullPath: filename });
-                            });
+                            DragAndDrop.openDroppedFiles(files);
                         });
                     }
                 });
@@ -332,8 +359,9 @@ define(function (require, exports, module) {
         
         // TODO: (issue 269) to support IE, need to listen to document instead (and even then it may not work when focus is in an input field?)
         $(window).focus(function () {
+            // This call to syncOpenDocuments() *should* be a no-op now that we have
+            // file watchers, but is still here as a safety net.
             FileSyncManager.syncOpenDocuments();
-            FileIndexManager.markDirty();
         });
         
         // Prevent unhandled middle button clicks from triggering native behavior
@@ -382,10 +410,14 @@ define(function (require, exports, module) {
             }
         }, true);
     }
-
-    // Dispatch htmlReady event
-    _beforeHTMLReady();
-    AppInit._dispatchReady(AppInit.HTML_READY);
-
-    $(window.document).ready(_onReady);
+    
+    // Wait for view state to load.
+    var viewStateTimer = PerfUtils.markStart("User viewstate loading");
+    PreferencesManager._smUserScopeLoading.always(function () {
+        PerfUtils.addMeasurement(viewStateTimer);
+        // Dispatch htmlReady event
+        _beforeHTMLReady();
+        AppInit._dispatchReady(AppInit.HTML_READY);
+        $(window.document).ready(_onReady);
+    });
 });

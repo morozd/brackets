@@ -23,7 +23,7 @@
 
 
 /*jslint vars: true, plusplus: true, devel: true, nomen: true, indent: 4, maxerr: 50 */
-/*global define, $, CodeMirror, brackets, window */
+/*global define, $, brackets, window */
 
 /**
  * ExtensionLoader searches the filesystem for extensions, then creates a new context for each one and loads it.
@@ -39,9 +39,11 @@ define(function (require, exports, module) {
 
     require("utils/Global");
 
-    var NativeFileSystem    = require("file/NativeFileSystem").NativeFileSystem,
-        FileUtils           = require("file/FileUtils"),
-        Async               = require("utils/Async");
+    var _           = require("thirdparty/lodash"),
+        FileSystem  = require("filesystem/FileSystem"),
+        FileUtils   = require("file/FileUtils"),
+        Async       = require("utils/Async"),
+        UrlParams   = require("utils/UrlParams").UrlParams;
 
     // default async initExtension timeout
     var INIT_EXTENSION_TIMEOUT = 10000;
@@ -69,7 +71,11 @@ define(function (require, exports, module) {
      * C:\Users\<user>\AppData\Roaming\Brackets\extensions\user on windows.
      */
     function getUserExtensionPath() {
-        return brackets.app.getApplicationSupportDirectory() + "/extensions/user";
+        if (brackets.app.getApplicationSupportDirectory) {
+            return brackets.app.getApplicationSupportDirectory() + "/extensions/user";
+        }
+
+        return null;
     }
     
     /**
@@ -101,6 +107,39 @@ define(function (require, exports, module) {
         _initExtensionTimeout = value;
     }
 
+    /**
+     * @private
+     * Loads optional requirejs-config.json file for an extension
+     * @param {Object} baseConfig
+     * @return {$.Promise}
+     */
+    function _mergeConfig(baseConfig) {
+        var deferred = new $.Deferred(),
+            extensionConfigFile = FileSystem.getFileForPath(baseConfig.baseUrl + "/requirejs-config.json");
+
+        // Optional JSON config for require.js
+        FileUtils.readAsText(extensionConfigFile).done(function (text) {
+            try {
+                var extensionConfig = JSON.parse(text);
+                
+                // baseConfig.paths properties will override any extension config paths
+                _.extend(extensionConfig.paths, baseConfig.paths);
+
+                // Overwrite baseUrl, context, locale (paths is already merged above)
+                _.extend(extensionConfig, _.omit(baseConfig, "paths"));
+                
+                deferred.resolve(extensionConfig);
+            } catch (err) {
+                // Failed to parse requirejs-config.json
+                deferred.reject("failed to parse requirejs-config.json");
+            }
+        }).fail(function () {
+            // If requirejs-config.json isn't specified, resolve with the baseConfig only
+            deferred.resolve(baseConfig);
+        });
+
+        return deferred.promise();
+    }
     
     /**
      * Loads the extension that lives at baseUrl into its own Require.js context
@@ -113,68 +152,68 @@ define(function (require, exports, module) {
      *              (Note: if extension contains a JS syntax error, promise is resolved not rejected).
      */
     function loadExtension(name, config, entryPoint) {
-        var result = new $.Deferred(),
-            promise = result.promise(),
-            extensionRequire = brackets.libRequire.config({
-                context: name,
-                baseUrl: config.baseUrl,
-                /* FIXME (issue #1087): can we pass this from the global require context instead of hardcoding twice? */
-                paths: globalConfig,
-                locale: brackets.getLocale()
-            });
-        contexts[name] = extensionRequire;
-
-        // console.log("[Extension] starting to load " + config.baseUrl);
+        var extensionConfig = {
+            context: name,
+            baseUrl: config.baseUrl,
+            /* FIXME (issue #1087): can we pass this from the global require context instead of hardcoding twice? */
+            paths: globalConfig,
+            locale: brackets.getLocale()
+        };
         
-        extensionRequire([entryPoint],
-            function (module) {
-                // console.log("[Extension] finished loading " + config.baseUrl);
-                var initPromise;
+        // Read optional requirejs-config.json
+        var promise = _mergeConfig(extensionConfig).then(function (mergedConfig) {
+            // Create new RequireJS context and load extension entry point
+            var extensionRequire = brackets.libRequire.config(mergedConfig),
+                extensionRequireDeferred = new $.Deferred();
 
-                _extensions[name] = module;
+            contexts[name] = extensionRequire;
+            extensionRequire([entryPoint], extensionRequireDeferred.resolve, extensionRequireDeferred.reject);
+            
+            return extensionRequireDeferred.promise();
+        }).then(function (module) {
+            // Extension loaded normally
+            var initPromise;
 
-                if (module && module.initExtension && (typeof module.initExtension === "function")) {
-                    // optional async extension init 
-                    try {
-                        initPromise = Async.withTimeout(module.initExtension(), _getInitExtensionTimeout());
-                    } catch (err) {
-                        console.error("[Extension] Error -- error thrown during initExtension for " + name + ": " + err);
-                        result.reject(err);
-                    }
+            _extensions[name] = module;
 
-                    if (initPromise) {
-                        // WARNING: These calls to initPromise.fail() and initPromise.then(),
-                        // could also result in a runtime error if initPromise is not a valid
-                        // promise. Currently, the promise is wrapped via Async.withTimeout(),
-                        // so the call is safe as-is.
-                        initPromise.fail(function (err) {
-                            if (err === Async.ERROR_TIMEOUT) {
-                                console.error("[Extension] Error -- timeout during initExtension for " + name);
-                            } else {
-                                console.error("[Extension] Error -- failed initExtension for " + name + (err ? ": " + err : ""));
-                            }
-                        });
-
-                        initPromise.then(result.resolve, result.reject);
-                    } else {
-                        result.resolve();
-                    }
-                } else {
-                    result.resolve();
+            // Optional sync/async initExtension
+            if (module && module.initExtension && (typeof module.initExtension === "function")) {
+                // optional async extension init 
+                try {
+                    initPromise = Async.withTimeout(module.initExtension(), _getInitExtensionTimeout());
+                } catch (err) {
+                    // Synchronous error while initializing extension
+                    console.error("[Extension] Error -- error thrown during initExtension for " + name + ": " + err);
+                    return new $.Deferred().reject(err).promise();
                 }
-            },
-            function errback(err) {
-                console.error("[Extension] failed to load " + config.baseUrl, err);
-                if (err.requireType === "define") {
-                    // This type has a useful stack (exception thrown by ext code or info on bad getModule() call)
-                    console.log(err.stack);
-                }
-                result.reject();
-            });
 
-        result.done(function () {
+                // initExtension may be synchronous and may not return a promise
+                if (initPromise) {
+                    // WARNING: These calls to initPromise.fail() and initPromise.then(),
+                    // could also result in a runtime error if initPromise is not a valid
+                    // promise. Currently, the promise is wrapped via Async.withTimeout(),
+                    // so the call is safe as-is.
+                    initPromise.fail(function (err) {
+                        if (err === Async.ERROR_TIMEOUT) {
+                            console.error("[Extension] Error -- timeout during initExtension for " + name);
+                        } else {
+                            console.error("[Extension] Error -- failed initExtension for " + name + (err ? ": " + err : ""));
+                        }
+                    });
+
+                    return initPromise;
+                }
+            }
+        }, function errback(err) {
+            // Extension failed to load during the initial require() call
+            console.error("[Extension] failed to load " + config.baseUrl + " " + err);
+            if (err.requireType === "define") {
+                // This type has a useful stack (exception thrown by ext code or info on bad getModule() call)
+                console.log(err.stack);
+            }
+        }).then(function () {
             $(exports).triggerHandler("load", config.baseUrl);
-        }).fail(function () {
+        }, function (err) {
             $(exports).triggerHandler("loadFailed", config.baseUrl);
         });
         
@@ -192,11 +231,9 @@ define(function (require, exports, module) {
     function testExtension(name, config, entryPoint) {
         var result = new $.Deferred(),
             extensionPath = config.baseUrl + "/" + entryPoint + ".js";
-
-        var fileExists = false, statComplete = false;
-        brackets.fs.stat(extensionPath, function (err, stat) {
-            statComplete = true;
-            if (err === brackets.fs.NO_ERROR && stat.isFile()) {
+        
+        FileSystem.resolve(extensionPath, function (err, entry) {
+            if (!err && entry.isFile) {
                 // unit test file exists
                 var extensionRequire = brackets.libRequire.config({
                     context: name,
@@ -204,9 +241,7 @@ define(function (require, exports, module) {
                     paths: $.extend({}, config.paths, globalConfig)
                 });
     
-                // console.log("[Extension] loading unit test " + config.baseUrl);
                 extensionRequire([entryPoint], function () {
-                    // console.log("[Extension] loaded unit tests " + config.baseUrl);
                     result.resolve();
                 });
             } else {
@@ -231,48 +266,40 @@ define(function (require, exports, module) {
     function _loadAll(directory, config, entryPoint, processExtension) {
         var result = new $.Deferred();
         
-        NativeFileSystem.requestNativeFileSystem(directory,
-            function (fs) {
-                fs.root.createReader().readEntries(
-                    function (entries) {
-                        var i,
-                            extensions = [];
-                        
-                        for (i = 0; i < entries.length; i++) {
-                            if (entries[i].isDirectory) {
-                                // FUTURE (JRB): read package.json instead of just using the entrypoint "main".
-                                // Also, load sub-extensions defined in package.json.
-                                extensions.push(entries[i].name);
-                            }
-                        }
-
-                        if (extensions.length === 0) {
-                            result.resolve();
-                            return;
-                        }
-                        
-                        Async.doInParallel(extensions, function (item) {
-                            var extConfig = {
-                                baseUrl: config.baseUrl + "/" + item,
-                                paths: config.paths
-                            };
-                            return processExtension(item, extConfig, entryPoint);
-                        }).always(function () {
-                            // Always resolve the promise even if some extensions had errors
-                            result.resolve();
-                        });
-                    },
-                    function (error) {
-                        console.error("[Extension] Error -- could not read native directory: " + directory);
-                        result.reject();
+        FileSystem.getDirectoryForPath(directory).getContents(function (err, contents) {
+            if (!err) {
+                var i,
+                    extensions = [];
+                
+                for (i = 0; i < contents.length; i++) {
+                    if (contents[i].isDirectory) {
+                        // FUTURE (JRB): read package.json instead of just using the entrypoint "main".
+                        // Also, load sub-extensions defined in package.json.
+                        extensions.push(contents[i].name);
                     }
-                );
-            },
-            function (error) {
-                console.error("[Extension] Error -- could not open native directory: " + directory);
+                }
+
+                if (extensions.length === 0) {
+                    result.resolve();
+                    return;
+                }
+                
+                Async.doInParallel(extensions, function (item) {
+                    var extConfig = {
+                        baseUrl: config.baseUrl + "/" + item,
+                        paths: config.paths
+                    };
+                    return processExtension(item, extConfig, entryPoint);
+                }).always(function () {
+                    // Always resolve the promise even if some extensions had errors
+                    result.resolve();
+                });
+            } else {
+                console.error("[Extension] Error -- could not read native directory: " + directory);
                 result.reject();
-            });
-        
+            }
+        });
+               
         return result.promise();
     }
     
@@ -311,25 +338,32 @@ define(function (require, exports, module) {
     /**
      * Load extensions.
      *
-     * @param {?string} A list containing references to extension source
-     *      location. A source location may be either (a) a folder path
-     *      relative to src/extensions or (b) an absolute path.
+     * @param {?Array.<string>} A list containing references to extension source
+     *      location. A source location may be either (a) a folder name inside
+     *      src/extensions or (b) an absolute path.
      * @return {!$.Promise} A promise object that is resolved when all extensions complete loading.
      */
     function init(paths) {
+        var params = new UrlParams();
+        
         if (_init) {
             // Only init once. Return a resolved promise.
             return new $.Deferred().resolve().promise();
         }
         
         if (!paths) {
-            paths = "default,dev," + getUserExtensionPath();
+            params.parse();
+            
+            if (params.get("reloadWithoutUserExts") === "true") {
+                paths = ["default"];
+            } else {
+                paths = ["default", "dev", getUserExtensionPath()];
+            }
         }
-
+        
         // Load extensions before restoring the project
         
-        // Create a new DirectoryEntry and call getDirectory() on the user extension
-        // directory. If the directory doesn't exist, it will be created.
+        // Get a Directory for the user extension directory and create it if it doesn't exist.
         // Note that this is an async call and there are no success or failure functions passed
         // in. If the directory *doesn't* exist, it will be created. Extension loading may happen
         // before the directory is finished being created, but that is okay, since the extension
@@ -337,15 +371,13 @@ define(function (require, exports, module) {
         // If the directory *does* exist, nothing else needs to be done. It will be scanned normally
         // during extension loading.
         var extensionPath = getUserExtensionPath();
-        new NativeFileSystem.DirectoryEntry().getDirectory(extensionPath,
-                                                           {create: true});
+        FileSystem.getDirectoryForPath(extensionPath).create();
         
         // Create the extensions/disabled directory, too.
         var disabledExtensionPath = extensionPath.replace(/\/user$/, "/disabled");
-        new NativeFileSystem.DirectoryEntry().getDirectory(disabledExtensionPath,
-                                                           {create: true});
+        FileSystem.getDirectoryForPath(disabledExtensionPath).create();
         
-        var promise = Async.doInParallel(paths.split(","), function (item) {
+        var promise = Async.doSequentially(paths, function (item) {
             var extensionPath = item;
             
             // If the item has "/" in it, assume it is a full path. Otherwise, load
@@ -355,7 +387,7 @@ define(function (require, exports, module) {
             }
             
             return loadAllExtensionsInNativeDirectory(extensionPath);
-        });
+        }, false);
         
         promise.always(function () {
             _init = true;
